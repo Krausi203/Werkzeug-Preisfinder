@@ -8,91 +8,200 @@
 <title>Werkzeug-Preisfinder</title>
 <style>
 *{box-sizing:border-box}
-body{margin:0;background:#f3f5f3;color:#17251e;
-font-family:-apple-system,BlinkMacSystemFont,Arial,sans-serif}
+body{
+  margin:0;background:#f3f5f3;color:#17251e;
+  font-family:-apple-system,BlinkMacSystemFont,Arial,sans-serif
+}
 header{background:#14251e;color:white;padding:28px 20px 32px}
 header h1{font-size:27px;margin:0 0 8px}
 header p{margin:0;color:#d1ddd5;font-size:14px}
-main{max-width:560px;margin:auto;padding:20px 16px}
-.card{background:white;border-radius:18px;padding:20px;
-box-shadow:0 3px 15px #17251e0d}
+main{max-width:650px;margin:auto;padding:20px 16px}
+.card,.offer{
+  background:white;border-radius:16px;padding:18px;
+  box-shadow:0 3px 15px #17251e0d;margin-bottom:12px
+}
 label{display:block;font-size:14px;font-weight:600;margin:17px 0 8px}
-input{width:100%;padding:15px;border:1px solid #ccd5ce;
-border-radius:10px;font-size:16px;background:white;color:#17251e}
-button{width:100%;padding:16px;border:0;border-radius:11px;
-background:#176b45;color:white;font-size:16px;font-weight:700;
-margin-top:20px}
-h2{font-size:19px;margin:24px 0 12px}
-.result{display:block;background:white;color:#17251e;
-padding:16px;margin:10px 0;border-radius:12px;
-text-decoration:none;border:1px solid #e0e6e1}
-.result strong{display:block;margin-bottom:5px}
-.result span{font-size:13px;color:#56645b}
-.note{font-size:13px;line-height:1.5;color:#59665e;margin-top:18px}
+input{
+  width:100%;padding:15px;border:1px solid #ccd5ce;
+  border-radius:10px;font-size:16px;background:white;color:#17251e
+}
+button{
+  width:100%;padding:16px;border:0;border-radius:11px;
+  background:#176b45;color:white;font-size:16px;font-weight:700;
+  margin-top:20px;cursor:pointer
+}
+button:disabled{opacity:.6;cursor:wait}
+h2{font-size:20px;margin:8px 0 14px}
+.note{font-size:13px;line-height:1.5;color:#59665e}
+#status{line-height:1.5;margin:16px 0}
+.offer-title{font-weight:700;line-height:1.4;margin-bottom:10px}
+.price{font-size:23px;font-weight:800;margin:8px 0}
+.merchant{font-size:14px;color:#59665e}
+.offer a{display:inline-block;margin-top:12px;color:#176b45;font-weight:700}
+.tag{font-size:12px;color:#59665e;margin-top:8px}
 .hidden{display:none}
 </style>
 </head>
 <body>
 <header>
   <h1>🔎 Werkzeug-Preisfinder</h1>
-  <p>Finde günstige Angebote für Werkzeuge in Deutschland.</p>
+  <p>Finde und vergleiche Werkzeugangebote in Deutschland.</p>
 </header>
+
 <main>
   <section class="card">
     <h2>Artikel suchen</h2>
     <form id="searchForm">
       <label for="manufacturer">Hersteller</label>
       <input id="manufacturer" placeholder="z. B. Bosch Professional"
-        autocomplete="organization" required>
+        autocomplete="organization" required maxlength="100">
+
       <label for="article">Hersteller-Artikelnummer</label>
       <input id="article" placeholder="z. B. 06019H5000"
-        autocapitalize="characters" required>
-      <button type="submit">Günstige Angebote suchen</button>
+        autocapitalize="characters" required maxlength="100">
+
+      <button id="searchButton" type="submit">
+        Günstige Angebote suchen
+      </button>
     </form>
-    <p class="note">Die Suche öffnet aktuelle Suchergebnisse externer
-    Websites. Preise und Verfügbarkeit müssen beim Händler geprüft werden.</p>
+    <p class="note">
+      Die Preise stammen aus einer externen Suchquelle. Prüfe beim Händler
+      den Gesamtpreis, Versandkosten, Lieferbarkeit und die genaue
+      Artikelnummer. Nicht jedes Suchergebnis passt exakt zum gesuchten Artikel.
+    </p>
   </section>
 
   <section id="results" class="hidden">
-    <h2>Suchmöglichkeiten</h2>
+    <h2>Gefundene Angebote</h2>
     <p id="summary"></p>
-    <a class="result" id="shopping" target="_blank" rel="noopener">
-      <strong>🛒 Google Shopping</strong>
-      <span>Händlerangebote und angezeigte Preise vergleichen</span>
-    </a>
-    <a class="result" id="websearch" target="_blank" rel="noopener">
-      <strong>🌐 Gesamte Websuche</strong>
-      <span>Weitere Händler und Produktangebote finden</span>
-    </a>
-    <a class="result" id="idealo" target="_blank" rel="noopener">
-      <strong>💶 Idealo suchen</strong>
-      <span>Nach passenden Preisvergleichsangeboten suchen</span>
-    </a>
-    <p class="note">Dies sind Suchlinks, keine automatische
-    Preisermittlung. Nicht jeder Händler wird erfasst; das günstigste
-    Ergebnis ist nicht garantiert.</p>
+    <p id="status" role="status" aria-live="polite"></p>
+    <div id="offers"></div>
+    <p class="note">
+      Sortierung nach dem erkannten Preis, aufsteigend. Preise und
+      Verfügbarkeit können sich ändern. Die Sortierung berücksichtigt
+      nicht automatisch Versandkosten oder die genaue Produktübereinstimmung.
+    </p>
   </section>
 </main>
+
 <script>
+const WORKER_URL =
+  "https://werkzeug-preisfinder.danielkraus39-fb3.workers.dev";
+
 const form = document.getElementById("searchForm");
-form.addEventListener("submit", function(event) {
+const button = document.getElementById("searchButton");
+const results = document.getElementById("results");
+const status = document.getElementById("status");
+const offersBox = document.getElementById("offers");
+
+form.addEventListener("submit", async function(event) {
   event.preventDefault();
-  const manufacturer = document.getElementById("manufacturer").value.trim();
-  const article = document.getElementById("article").value.trim();
+
+  const manufacturer =
+    document.getElementById("manufacturer").value.trim();
+  const article =
+    document.getElementById("article").value.trim();
+
   if (!manufacturer || !article) return;
 
-  const query = manufacturer + " " + article;
-  const encoded = encodeURIComponent(query);
+  results.classList.remove("hidden");
+  offersBox.replaceChildren();
+  status.textContent = "Angebote werden gesucht. Bitte kurz warten …";
   document.getElementById("summary").textContent =
-    "Gesuchte Artikelnummer: " + article + " · Hersteller: " + manufacturer;
-  document.getElementById("shopping").href =
-    "https://www.google.com/search?tbm=shop&q=" + encoded;
-  document.getElementById("websearch").href =
-    "https://www.google.com/search?q=" + encoded + "+Preis+Deutschland";
-  document.getElementById("idealo").href =
-    "https://www.google.com/search?q=site%3Aidealo.de+" + encoded;
-  document.getElementById("results").classList.remove("hidden");
-  document.getElementById("results").scrollIntoView({behavior:"smooth"});
+    "Hersteller: " + manufacturer + " · Artikelnummer: " + article;
+
+  button.disabled = true;
+  button.textContent = "Suche läuft …";
+
+  try {
+    const params = new URLSearchParams({manufacturer, article});
+    const response = await fetch(WORKER_URL + "/search?" + params);
+
+    const data = await response.json();
+
+    if (!response.ok || data.error) {
+      throw new Error(data.error || "Die Suche ist fehlgeschlagen.");
+    }
+
+    const offers = Array.isArray(data.offers) ? data.offers : [];
+
+    if (offers.length === 0) {
+      status.textContent =
+        "Leider wurden keine Angebote gefunden. Versuche es mit einer anderen Schreibweise.";
+      return;
+    }
+
+    status.textContent =
+      offers.length + " Suchergebnisse gefunden. Günstigste Preise zuerst.";
+
+    offers.forEach(function(offer) {
+      const card = document.createElement("article");
+      card.className = "offer";
+
+      const title = document.createElement("div");
+      title.className = "offer-title";
+      title.textContent = offer.title || "Produkt ohne Titel";
+      card.appendChild(title);
+
+      const price = document.createElement("div");
+      price.className = "price";
+      price.textContent = offer.price || "Preis nicht angegeben";
+      card.appendChild(price);
+
+      const merchant = document.createElement("div");
+      merchant.className = "merchant";
+      merchant.textContent = "Händler: " +
+        (offer.merchant || "Nicht bekannt");
+      card.appendChild(merchant);
+
+      const link = document.createElement("a");
+      let destination = offer.link;
+
+      if (!destination) {
+        const query = (offer.title || "") + " " +
+          (offer.merchant || "") + " kaufen";
+        destination =
+          "https://www.google.com/search?q=" +
+          encodeURIComponent(query);
+        link.textContent = "Angebot beim Händler suchen ↗";
+      } else {
+        try {
+          const parsed = new URL(destination);
+          if (parsed.protocol !== "https:" &&
+              parsed.protocol !== "http:") {
+            destination = "";
+          }
+        } catch {
+          destination = "";
+        }
+        link.textContent = "Zum Angebot ↗";
+      }
+
+      if (destination) {
+        link.href = destination;
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+        card.appendChild(link);
+      }
+
+      const note = document.createElement("div");
+      note.className = "tag";
+      note.textContent =
+        "Bitte prüfen, ob Artikelnummer und Lieferumfang übereinstimmen.";
+      card.appendChild(note);
+
+      offersBox.appendChild(card);
+    });
+
+  } catch (error) {
+    status.textContent =
+      "Die Suche konnte nicht abgeschlossen werden. " +
+      "Bitte prüfe deine Internetverbindung und versuche es erneut. " +
+      "Details: " + error.message;
+  } finally {
+    button.disabled = false;
+    button.textContent = "Günstige Angebote suchen";
+  }
 });
 </script>
 </body>
