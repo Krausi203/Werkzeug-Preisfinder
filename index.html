@@ -178,7 +178,8 @@ form.addEventListener("submit", async event => {
   button.textContent = "Suche läuft …";
 
   try {
-    const params = new URLSearchParams({manufacturer, article});
+    const productType = document.getElementById("productType").value.trim();
+const params = new URLSearchParams({manufacturer, article, productType});
     const response = await fetch(WORKER_URL + "/search?" + params);
     const data = await response.json();
 
