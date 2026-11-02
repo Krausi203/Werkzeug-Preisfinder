@@ -73,31 +73,51 @@ h2{font-size:20px;margin:8px 0 14px}
   </section>
 </main>
 
-<script>
-const WORKER_URL = "https://werkzeug-preisfinder.danielkraus39-fb3.workers.dev";
+
+const WORKER_URL =
+  "https://werkzeug-preisfinder.danielkraus39-fb3.workers.dev";
+
 const form = document.getElementById("searchForm");
 const button = document.getElementById("searchButton");
 const results = document.getElementById("results");
 const status = document.getElementById("status");
 const offersBox = document.getElementById("offers");
 const showAccessories = document.getElementById("showAccessories");
+const showVariants = document.getElementById("showVariants");
+
 let currentOffers = [];
 
 function renderOffers() {
   offersBox.replaceChildren();
 
-  const visible = currentOffers.filter(offer =>
-    showAccessories.checked || !offer.isAccessory
-  );
+  const visible = currentOffers.filter(offer => {
+    const category = offer.classification || "";
+
+    if (category === "zubehör" || offer.isAccessory) {
+      return showAccessories.checked;
+    }
+
+    if (
+      category === "variante" ||
+      category === "set" ||
+      category === "verwandt" ||
+      category === "unbekannt"
+    ) {
+      return showVariants.checked;
+    }
+
+    return category === "exakt";
+  });
 
   if (!visible.length) {
     status.textContent = currentOffers.length
-      ? "Keine passenden Ergebnisse mit diesem Filter. Aktiviere Zubehör, um alle Treffer zu sehen."
-      : "Keine Angebote gefunden. Versuche eine andere Schreibweise.";
+      ? "Keine Angebote für die gewählten Filter vorhanden."
+      : "Keine passenden Angebote gefunden.";
     return;
   }
 
-  status.textContent = visible.length + " Angebote angezeigt, nach Preis sortiert.";
+  status.textContent =
+    visible.length + " Angebote angezeigt.";
 
   visible.forEach(offer => {
     const card = document.createElement("article");
@@ -105,30 +125,40 @@ function renderOffers() {
 
     const title = document.createElement("div");
     title.className = "offer-title";
-    title.textContent = offer.title || "Produkt ohne Titel";
+    title.textContent =
+      offer.title || "Produkt ohne Titel";
     card.appendChild(title);
 
     const price = document.createElement("div");
     price.className = "price";
-    price.textContent = offer.price || "Preis nicht angegeben";
+    price.textContent =
+      offer.price || "Preis nicht angegeben";
     card.appendChild(price);
 
     const merchant = document.createElement("div");
     merchant.className = "merchant";
-    merchant.textContent = "Händler: " + (offer.merchant || "Nicht bekannt");
+    merchant.textContent =
+      "Händler: " + (offer.merchant || "Nicht bekannt");
     card.appendChild(merchant);
 
-    const variant = document.createElement("span");
-    variant.className = "tag";
-    variant.textContent = offer.variant || "Variante nicht sicher erkannt";
-    card.appendChild(variant);
+    const category = document.createElement("span");
+    category.className = "tag";
 
-    if (offer.isAccessory) {
-      const accessory = document.createElement("span");
-      accessory.className = "tag";
-      accessory.textContent = "Ersatzteil / Zubehör";
-      card.appendChild(accessory);
-    }
+    const labels = {
+      exakt: "Exakter Artikel",
+      variante: "Variante",
+      set: "Set",
+      verwandt: "Verwandter Artikel",
+      unbekannt: "Nicht eindeutig zugeordnet",
+      zubehör: "Ersatzteil / Zubehör"
+    };
+
+    category.textContent =
+      labels[offer.classification] ||
+      offer.variant ||
+      "Nicht klassifiziert";
+
+    card.appendChild(category);
 
     if (offer.delivery) {
       const delivery = document.createElement("div");
@@ -139,10 +169,13 @@ function renderOffers() {
 
     let destination = offer.link;
     let directLink = false;
+
     try {
       if (destination) {
         const parsed = new URL(destination);
-        directLink = ["https:", "http:"].includes(parsed.protocol);
+        directLink =
+          ["https:", "http:"].includes(parsed.protocol);
+
         if (!directLink) destination = null;
       }
     } catch {
@@ -150,9 +183,12 @@ function renderOffers() {
     }
 
     if (!destination) {
-      destination = "https://www.google.com/search?q=" +
-        encodeURIComponent((offer.title || "") + " " +
-        (offer.merchant || "") + " kaufen");
+      destination =
+        "https://www.google.com/search?q=" +
+        encodeURIComponent(
+          (offer.title || "") + " " +
+          (offer.merchant || "") + " kaufen"
+        );
     }
 
     const link = document.createElement("a");
@@ -162,48 +198,86 @@ function renderOffers() {
     link.textContent = directLink
       ? "Direkt zum Angebot ↗"
       : "Angebot bei Google suchen ↗";
-    card.appendChild(link);
 
+    card.appendChild(link);
     offersBox.appendChild(card);
   });
 }
 
 form.addEventListener("submit", async event => {
   event.preventDefault();
-  const manufacturer = document.getElementById("manufacturer").value.trim();
-  const article = document.getElementById("article").value.trim();
+
+  const manufacturer =
+    document.getElementById("manufacturer").value.trim();
+
+  const article =
+    document.getElementById("article").value.trim();
+
   if (!manufacturer || !article) return;
 
   results.classList.remove("hidden");
   offersBox.replaceChildren();
+
   status.textContent = "Angebote werden gesucht …";
+
   document.getElementById("summary").textContent =
-    "Hersteller: " + manufacturer + " · Artikelnummer: " + article;
+    "Hersteller: " + manufacturer +
+    " · Artikelnummer: " + article;
+
   button.disabled = true;
   button.textContent = "Suche läuft …";
 
   try {
-    const productType = document.getElementById("productType").value.trim();
-const params = new URLSearchParams({manufacturer, article, productType});
-    const response = await fetch(WORKER_URL + "/search?" + params);
+    const productType =
+      document.getElementById("productType").value.trim();
+
+    const params = new URLSearchParams({
+      manufacturer,
+      article,
+      productType,
+      includeVariants: String(showVariants.checked),
+      includeAccessories: String(showAccessories.checked)
+    });
+
+    const response = await fetch(
+      WORKER_URL + "/search?" + params
+    );
+
     const data = await response.json();
 
     if (!response.ok || data.error) {
-      throw new Error(data.error || "Suche fehlgeschlagen");
+      throw new Error(
+        data.error || "Suche fehlgeschlagen"
+      );
     }
 
-    currentOffers = Array.isArray(data.offers) ? data.offers : [];
+    currentOffers = Array.isArray(data.offers)
+      ? data.offers
+      : [];
+
     renderOffers();
+
   } catch (error) {
     currentOffers = [];
-    status.textContent = "Suche fehlgeschlagen: " + error.message;
+    status.textContent =
+      "Suche fehlgeschlagen: " + error.message;
+
   } finally {
     button.disabled = false;
     button.textContent = "Günstige Angebote suchen";
   }
 });
 
-showAccessories.addEventListener("change", renderOffers);
+showAccessories.addEventListener(
+  "change",
+  renderOffers
+);
+
+showVariants.addEventListener(
+  "change",
+  renderOffers
+);
+
 </script>
 </body>
 </html>
